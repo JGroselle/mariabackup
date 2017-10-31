@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 #
 #  Name : admin.backup_mariadb.sh
@@ -11,7 +12,7 @@
 [ -x /usr/local/include/bash_common.inc ] && source /usr/local/include/bash_common.inc || 
   { echo "[ERR] Impossible to load bash_common.inc" ; exit 2 ; }
 
-# Déclaration des binaires
+# Binaries
 declare -A BIN_ || f_notify -m "Impossible to define associative array. Maybe old bash version ?" -s -c 2 -e
 BIN_[LS]=$(which ls)
 BIN_[DU]=$(which du)
@@ -30,6 +31,8 @@ MY_LOGFILE='/var/log/backup_mariadb.log'
 MY_MARIADB_DEST_DIR='/var/backups/mariadb'
 MY_MYSQLEXTRAFILE='/etc/mysql/debian.cnf'
 MY_TODAY=$(date +%Y%m%d)
+MY_BDD=''
+MY_REMOTE=0
 
 # Dynamic Variables
 MY_DEBUG=0
@@ -59,17 +62,20 @@ function backup_test() {
       for binary in ${!BIN_[@]} ; do [[ ${BIN_[$binary]} ]] || f_notify -m "Binary \"$binary\" seems to be absent from the system" -sf -c 2 -e ; done
       # Test Backup folder
       [ -d ${MY_MARIADB_DEST_DIR} ] || ${BIN_[MKDIR]} -p ${MY_MARIADB_DEST_DIR}
+      return 0
     ;;
     "in_delete")
       # test de la présence du répertoire de destination
       [ -d "${MY_MARIADB_DEST_DIR}" ] || f_notify -m "No such file or directory (${MY_MARIADB_DEST_DIR})" -sf -c 2 -e
+      return 0
     ;;
     "in_backup")
       # Test de la présence d'un backup déjà présent
-      [ -e "${MY_TARGET_DUMP}.gz" -o -e "${MY_TARGET_DUMP}" ] && { 
+      [ -e "${MY_TARGET_DUMP}.gz" -o -e "${MY_TARGET_DUMP}" ] && {
         f_notify -m "Today backup already exist, new one is generated" -sf -c 0
         MY_TARGET_DUMP="${MY_MARIADB_DEST_DIR}/$(date +%Y%m%d_%H%M)_${DATABASE}.sql"
-       }
+      }
+      return 0
     ;;
   esac
 }
@@ -79,8 +85,9 @@ function backup_mariadb() {
   f_notify -m "Start backuping database ${DATABASE}" -sf -c 0
   local MY_MYSQLDUMPOPTS='--opt --single-transaction --quick --flush-logs --master-data=2'
   ${BIN_[MYSQLDUMP]} --defaults-extra-file=${MY_MYSQLEXTRAFILE} ${MY_MYSQLDUMPOPTS} ${DATABASE} > "${MY_TARGET_DUMP}"
-  [ ${?} != '0' ] && f_notify -m "Problem while backuping database ${DATABASE}" -sf -c 2 -e
+  [ "${?}" -ne 0 ] && f_notify -m "Problem while backuping database ${DATABASE}" -sf -c 2 -e
   f_notify -m "Database ${DATABASE} backuped" -sf -c 0
+  return 0
 }
 
 function rm_old() {
@@ -91,6 +98,7 @@ function rm_old() {
   cd ${MY_MARIADB_DEST_DIR} && ${BIN_[FIND]} . -name '*.gz' -type f -mtime +${RETENTION_DAYS} -delete
   [ ${?} != '0' ] && f_notify -m "Problem while deleting old backups..." -sf -c 2 -e
   f_notify -m "Old backups deleted" -sf -c 0
+  return 0
 }
 
 function backup_compress() {
@@ -98,6 +106,7 @@ function backup_compress() {
   cd ${MY_MARIADB_DEST_DIR} && ${BIN_[FIND]} . -name '*.sql' -type f -exec gzip {} +
   [ ${?} != '0' ] && f_notify -m "Problem while compressing backups..." -sf -c 2 -e
   f_notify -m "Backups compressed" -sf -c 0
+  return 0
 }
 
 # MAIN
@@ -107,27 +116,27 @@ function backup_compress() {
 
 while getopts ":ahdb:" opt; do
   case ${opt} in
-    h) 
-      usage 
+    h)
+      usage
     ;;
     a)
       (( ${MY_DEBUG} )) && debug -a was trigered
-      [ -z "${MY_BDD}" ] || { f_notify -m 'You cannot use -a and -b options' -s -c 0 && usage ; }
+      [ -z "${MY_BDD}" ] || f_notify -m "You cannot use -a and -b options. $(usage)" -s -c 2 -e
       MY_BDD='all'
     ;;
-    d) 
-      MY_DEBUG=1 
+    d)
+      MY_DEBUG=1
     ;;
     b)
       (( ${MY_DEBUG} )) && debug -a was trigered
       [ "${MY_BDD}" == 'all' ] && { f_notify -m 'You cannot use -a and -b options' -s -c 0 && usage ; }
       MY_BDD="${OPTARG}"
     ;;
-    :) 
-      f_notify -m "Option -${OPTARG} requires an argument." -s -c 0 && usage 
+    :)
+      f_notify -m "Option -${OPTARG} requires an argument. $(usage)" -s -c 2 -e
     ;;
-    \?) 
-      f_notify -m "[ERROR] Invalid option -${OPTARG}" -s -c 0 && usage 
+    \?)
+      f_notify -m "[ERROR] Invalid option -${OPTARG}. $(usage)" -s -c 2 -e
     ;;
   esac
 done
@@ -152,7 +161,7 @@ if [ "${MY_BDD}" == 'all' ] ; then
 fi
 
 # Run backups
-for DATABASE in ${LIST_BDD} ; do 
+for DATABASE in ${LIST_BDD} ; do
   MY_TARGET_DUMP="${MY_MARIADB_DEST_DIR}/${MY_TODAY}_${DATABASE}.sql"
   backup_test 'in_backup' "${MY_TARGET_DUMP}"
   backup_mariadb "${DATABASE}"
@@ -167,3 +176,5 @@ fi
 if [ "${MY_BDD}" != 'all' ] ; then
   f_notify -m "Dump: ${MY_TARGET_DUMP}" -s -c 0
 fi
+
+exit 0
