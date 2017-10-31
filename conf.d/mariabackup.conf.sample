@@ -1,0 +1,21 @@
+# mariabackup configuration file
+
+#
+# Common parameters
+#
+
+# cnf file - Can be overwrite with "-r" option
+MY_MYSQLEXTRAFILE='/etc/mysql/debian.cnf'
+
+# log file for script output
+MY_LOGFILE='/var/log/mariabackup.log'
+
+# Destination forleder for the backup files
+MY_MARIADB_DEST_DIR='/var/backups/mariadb'
+
+# Number of _days_ to keep backup files
+MY_BCKPDAYS='15'
+
+# Activate debug mode (default = off)
+MY_DEBUG=0
+
