@@ -21,8 +21,12 @@ set -euo pipefail
 #
 
 # includes common
-[ -x /usr/local/include/bash_common.inc ] && source /usr/local/include/bash_common.inc || 
-  { echo "[ERR] Impossible to load bash_common.inc" ; exit 2 ; }
+if [ -x /usr/local/include/bash_common.inc ] ; then
+  source /usr/local/include/bash_common.inc
+else
+  echo "[ERR] Impossible to load bash_common.inc"
+  exit 2
+fi
 
 # Binaries
 declare -A BIN_ || f_notify -m "Impossible to define associative array. Maybe old bash version ?" -s -c 2 -e
@@ -39,16 +43,17 @@ BIN_[MYSQL]=$(which mysql)
 BIN_[MYSQLDUMP]=$(which mysqldump)
 
 # Static Variables
-MY_LOGFILE='/var/log/backup_mariadb.log'
-MY_MARIADB_DEST_DIR='/var/backups/mariadb'
-MY_MYSQLEXTRAFILE='/etc/mysql/debian.cnf'
 MY_TODAY=$(date +%Y%m%d)
 MY_BDD=''
 MY_REMOTE=0
+CONFIG_FILE='/etc/mariabackup.conf'
 
-# Dynamic Variables
-MY_DEBUG=0
-MY_BCKPDAYS='15'
+# Source configuration file
+if [ -r "${CONFIG_FILE}" ] ; then
+  source ${CONFIG_FILE}
+else
+  f_notify -m "Cannot read configuration file: ${CONFIG_FILE}." -s -c 2 -e
+fi
 
 # Functions
 function usage() {
@@ -150,7 +155,6 @@ while getopts ":ahdb:r:" opt; do
     r)
       (( ${MY_DEBUG} )) && debug -r was trigered
       MY_REMOTE=1
-      export MY_MARIADB_DEST_DIR='/mnt/netapp/mariadb'
       export MY_MYSQLEXTRAFILE="${OPTARG}"
     ;;
     :)
