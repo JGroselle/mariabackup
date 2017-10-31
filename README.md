@@ -67,7 +67,7 @@ Backup all remote databases:
 
 Backup a remote database named testdb:
 
-`pgbackup -b testdb -r ~/.backup.cnf`
+`mariabackup -b testdb -r ~/.backup.cnf`
 
 ## Contribute
 
