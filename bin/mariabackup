@@ -58,6 +58,7 @@ function usage() {
   echo ""
   echo "  $script_name -a                - Backup all database"
   echo "  $script_name -b database_name  - Backup a single database"
+  echo "  $script_name -r cnf_file       - Backup a remote server"
   echo "  $script_name -h                - Print this help"
   echo ""
   exit 3
