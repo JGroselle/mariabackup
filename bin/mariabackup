@@ -1,0 +1,169 @@
+#!/bin/bash
+
+#
+#  Name : admin.backup_mariadb.sh
+#  Role : MariaDB database backup script
+#  Creator : Julien Groselle <julien.groselle@gmail.com>
+#  Date : 09/06/2014
+#
+
+# includes common
+[ -x /usr/local/include/bash_common.inc ] && source /usr/local/include/bash_common.inc || 
+  { echo "[ERR] Impossible to load bash_common.inc" ; exit 2 ; }
+
+# Déclaration des binaires
+declare -A BIN_ || f_notify -m "Impossible to define associative array. Maybe old bash version ?" -s -c 2 -e
+BIN_[LS]=$(which ls)
+BIN_[DU]=$(which du)
+BIN_[RM]=$(which rm)
+BIN_[TAIL]=$(which tail)
+BIN_[FIND]=$(which find)
+BIN_[GREP]=$(which grep)
+BIN_[AWK]=$(which awk)
+BIN_[XARGS]=$(which xargs)
+BIN_[MKDIR]=$(which mkdir)
+BIN_[MYSQL]=$(which mysql)
+BIN_[MYSQLDUMP]=$(which mysqldump)
+
+# Static Variables
+MY_LOGFILE='/var/log/backup_mariadb.log'
+MY_MARIADB_DEST_DIR='/var/backups/mariadb'
+MY_MYSQLEXTRAFILE='/etc/mysql/debian.cnf'
+MY_TODAY=$(date +%Y%m%d)
+
+# Dynamic Variables
+MY_DEBUG=0
+MY_BCKPDAYS='15'
+
+# Functions
+function usage() {
+  script_name=$(basename $0)
+  echo ""
+  echo "  $script_name usage:"
+  echo ""
+  echo "  $script_name -a                - Backup all database"
+  echo "  $script_name -b database_name  - Backup a single database"
+  echo "  $script_name -h                - Print this help"
+  echo ""
+  exit 3
+}
+
+function backup_test() {
+  MY_TEST_POS="$1"
+  (( $MY_DEBUG )) && debug Test position : $MY_TEST_POS
+  case $MY_TEST_POS in
+    "pre")
+      # Test user
+      [ "$LOGNAME" != "root" ] && f_notify -m "Script exeucuted with wrong user ($LOGNAME)" -sf -c 2 -e
+      # Test binaires existense
+      for binary in ${!BIN_[@]} ; do [[ ${BIN_[$binary]} ]] || f_notify -m "Binary \"$binary\" seems to be absent from the system" -sf -c 2 -e ; done
+      # Test Backup folder
+      [ -d ${MY_MARIADB_DEST_DIR} ] || ${BIN_[MKDIR]} -p ${MY_MARIADB_DEST_DIR}
+    ;;
+    "in_delete")
+      # test de la présence du répertoire de destination
+      [ -d "${MY_MARIADB_DEST_DIR}" ] || f_notify -m "No such file or directory (${MY_MARIADB_DEST_DIR})" -sf -c 2 -e
+    ;;
+    "in_backup")
+      # Test de la présence d'un backup déjà présent
+      [ -e "${MY_TARGET_DUMP}.gz" -o -e "${MY_TARGET_DUMP}" ] && { 
+        f_notify -m "Today backup already exist, new one is generated" -sf -c 0
+        MY_TARGET_DUMP="${MY_MARIADB_DEST_DIR}/$(date +%Y%m%d_%H%M)_${DATABASE}.sql"
+       }
+    ;;
+  esac
+}
+
+function backup_mariadb() {
+  local DATABASE="${1}"
+  f_notify -m "Start backuping database ${DATABASE}" -sf -c 0
+  local MY_MYSQLDUMPOPTS='--opt --single-transaction --quick --flush-logs --master-data=2'
+  ${BIN_[MYSQLDUMP]} --defaults-extra-file=${MY_MYSQLEXTRAFILE} ${MY_MYSQLDUMPOPTS} ${DATABASE} > "${MY_TARGET_DUMP}"
+  [ ${?} != '0' ] && f_notify -m "Problem while backuping database ${DATABASE}" -sf -c 2 -e
+  f_notify -m "Database ${DATABASE} backuped" -sf -c 0
+}
+
+function rm_old() {
+  local RETENTION_DAYS=${1}
+  cd ${MY_MARIADB_DEST_DIR} && local CMD=$(${BIN_[FIND]} . -name '*.gz' -type f -mtime +${RETENTION_DAYS} | wc -l)
+  [ "${CMD}" -eq 0 ] && return 0
+  f_notify -m "Start deleting old backups (retention : ${RETENTION_DAYS} days)" -sf -c 0
+  cd ${MY_MARIADB_DEST_DIR} && ${BIN_[FIND]} . -name '*.gz' -type f -mtime +${RETENTION_DAYS} -delete
+  [ ${?} != '0' ] && f_notify -m "Problem while deleting old backups..." -sf -c 2 -e
+  f_notify -m "Old backups deleted" -sf -c 0
+}
+
+function backup_compress() {
+  f_notify -m "Start compressing backups" -sf -c 0
+  cd ${MY_MARIADB_DEST_DIR} && ${BIN_[FIND]} . -name '*.sql' -type f -exec gzip {} +
+  [ ${?} != '0' ] && f_notify -m "Problem while compressing backups..." -sf -c 2 -e
+  f_notify -m "Backups compressed" -sf -c 0
+}
+
+# MAIN
+
+# Test arguments existance
+[ "${#}" -eq 0 ] && usage
+
+while getopts ":ahdb:" opt; do
+  case ${opt} in
+    h) 
+      usage 
+    ;;
+    a)
+      (( ${MY_DEBUG} )) && debug -a was trigered
+      [ -z "${MY_BDD}" ] || { f_notify -m 'You cannot use -a and -b options' -s -c 0 && usage ; }
+      MY_BDD='all'
+    ;;
+    d) 
+      MY_DEBUG=1 
+    ;;
+    b)
+      (( ${MY_DEBUG} )) && debug -a was trigered
+      [ "${MY_BDD}" == 'all' ] && { f_notify -m 'You cannot use -a and -b options' -s -c 0 && usage ; }
+      MY_BDD="${OPTARG}"
+    ;;
+    :) 
+      f_notify -m "Option -${OPTARG} requires an argument." -s -c 0 && usage 
+    ;;
+    \?) 
+      f_notify -m "[ERROR] Invalid option -${OPTARG}" -s -c 0 && usage 
+    ;;
+  esac
+done
+
+# Primary tests
+backup_test 'pre'
+
+# Define database to backup
+if [ "${MY_BDD}" == 'all' ] ; then
+  LIST_BDD="$(${BIN_[MYSQL]} --defaults-extra-file=${MY_MYSQLEXTRAFILE} -s -e "SELECT TABLE_SCHEMA FROM information_schema.TABLES \
+    WHERE TABLE_SCHEMA NOT IN ('information_schema','performance_schema') GROUP BY TABLE_SCHEMA;" | ${BIN_[XARGS]})"
+else
+  LIST_BDD="$(${BIN_[MYSQL]} --defaults-extra-file=${MY_MYSQLEXTRAFILE} -s -e "SELECT TABLE_SCHEMA FROM information_schema.TABLES WHERE TABLE_SCHEMA LIKE '${MY_BDD}' GROUP BY 1")"
+fi
+
+[ -z "${LIST_BDD}" ] && f_notify -m "Database ${MY_BDD} does not exist" -s -c 2 -e
+
+# Run purge
+if [ "${MY_BDD}" == 'all' ] ; then
+  backup_test 'in_delete'
+  rm_old "${MY_BCKPDAYS}"
+fi
+
+# Run backups
+for DATABASE in ${LIST_BDD} ; do 
+  MY_TARGET_DUMP="${MY_MARIADB_DEST_DIR}/${MY_TODAY}_${DATABASE}.sql"
+  backup_test 'in_backup' "${MY_TARGET_DUMP}"
+  backup_mariadb "${DATABASE}"
+done
+
+# Compress backups
+if [ "${MY_BDD}" == 'all' ] ; then
+  backup_compress
+fi
+
+# Screen output if not 'all'
+if [ "${MY_BDD}" != 'all' ] ; then
+  f_notify -m "Dump: ${MY_TARGET_DUMP}" -s -c 0
+fi
