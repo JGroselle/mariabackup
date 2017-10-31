@@ -58,6 +58,7 @@ function usage() {
   echo ""
   echo "  $script_name -a                - Backup all database"
   echo "  $script_name -b database_name  - Backup a single database"
+  echo "  $script_name -r cnf_file       - Backup a remote server"
   echo "  $script_name -h                - Print this help"
   echo ""
   exit 3
@@ -68,8 +69,10 @@ function backup_test() {
   (( $MY_DEBUG )) && debug Test position : $MY_TEST_POS
   case $MY_TEST_POS in
     "pre")
+      # Test BDD
+      [ -z "${MY_BDD}" ] && f_notify -m "You MUST specify a database. Use option -a or -b. $(usage)" -sf -c 2
       # Test user
-      [ "$LOGNAME" != "root" ] && f_notify -m "Script exeucuted with wrong user ($LOGNAME)" -sf -c 2 -e
+      [ "$LOGNAME" != "root" -a "${MY_REMOTE}" -eq 0 ] && f_notify -m "Script exeucuted with wrong user ($LOGNAME)" -sf -c 2 -e
       # Test binaires existense
       for binary in ${!BIN_[@]} ; do [[ ${BIN_[$binary]} ]] || f_notify -m "Binary \"$binary\" seems to be absent from the system" -sf -c 2 -e ; done
       # Test Backup folder
@@ -126,7 +129,7 @@ function backup_compress() {
 # Test arguments existance
 [ "${#}" -eq 0 ] && usage
 
-while getopts ":ahdb:" opt; do
+while getopts ":ahdb:r:" opt; do
   case ${opt} in
     h)
       usage
@@ -141,8 +144,14 @@ while getopts ":ahdb:" opt; do
     ;;
     b)
       (( ${MY_DEBUG} )) && debug -a was trigered
-      [ "${MY_BDD}" == 'all' ] && { f_notify -m 'You cannot use -a and -b options' -s -c 0 && usage ; }
-      MY_BDD="${OPTARG}"
+      [ "${MY_BDD}" == 'all' ] && f_notify -m "You cannot use -a and -b options. $(usage)" -s -c 2 -e
+      [ "$(${BIN_[GREP]} -E ".*\s.*" ${OPTARG})" ] || MY_BDD="${OPTARG}"
+    ;;
+    r)
+      (( ${MY_DEBUG} )) && debug -r was trigered
+      MY_REMOTE=1
+      export MY_MARIADB_DEST_DIR='/mnt/netapp/mariadb'
+      export MY_MYSQLEXTRAFILE="${OPTARG}"
     ;;
     :)
       f_notify -m "Option -${OPTARG} requires an argument. $(usage)" -s -c 2 -e
