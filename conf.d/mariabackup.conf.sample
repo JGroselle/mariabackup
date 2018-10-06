@@ -19,3 +19,5 @@ MY_BCKPDAYS='15'
 # Activate debug mode (default = off)
 MY_DEBUG=0
 
+# MariaDB binlog are enable (default = off)
+MY_BINLOG=0
