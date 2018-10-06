@@ -103,7 +103,8 @@ function backup_test() {
 function backup_mariadb() {
   local DATABASE="${1}"
   f_notify -m "Start backuping database ${DATABASE}" -sf -c 0
-  local MY_MYSQLDUMPOPTS='--opt --single-transaction --quick --flush-logs --master-data=2'
+  local MY_MYSQLDUMPOPTS='--opt --single-transaction --quick'
+  (( $MY_BINLOG )) && local MY_MYSQLDUMPOPTS='--opt --single-transaction --quick --flush-logs --master-data=2'
   ${BIN_[MYSQLDUMP]} --defaults-extra-file=${MY_MYSQLEXTRAFILE} ${MY_MYSQLDUMPOPTS} ${DATABASE} > "${MY_TARGET_DUMP}"
   [ "${?}" -ne 0 ] && f_notify -m "Problem while backuping database ${DATABASE}" -sf -c 2 -e
   f_notify -m "Database ${DATABASE} backuped" -sf -c 0
